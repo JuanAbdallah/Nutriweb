@@ -41,7 +41,7 @@ nutriweb/
 ### 1. Clonar o repositório
 
 ```bash
-git clone https://gitlab.com/seu-usuario/nutriweb.git
+git clone https://github.com/JuanAbdallah/Nutriweb.git
 cd nutriweb/Entrega02/NutriWebNew/NutriWebNew
 ```
 
