@@ -1,0 +1,1 @@
+Calorias: ${alimento.cal * qtde} cal

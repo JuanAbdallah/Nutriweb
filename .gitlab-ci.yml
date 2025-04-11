@@ -1,0 +1,102 @@
+stages:
+  - build
+  - test
+  - deploy
+
+variables:
+  PROJECT_PATH: "Entrega02/NutriWebNew/NutriWebNew"
+  MAVEN_CLI_OPTS: "-B -DskipTests"
+  HOMOLOG_EC2_IP: "44.196.244.82" # IP homologação
+  MAIN_EC2_IP: "54.144.26.203" # IP produção
+
+# Etapa 1: Build
+build-job:
+  stage: build
+  image: maven:3.8.6-openjdk-11
+  cache:
+    paths:
+      - .m2/repository
+  script:
+    - echo "Navegando para a pasta do projeto"
+    - cd $PROJECT_PATH
+    - echo "Compilando o projeto..."
+    - mvn $MAVEN_CLI_OPTS clean package
+  artifacts:
+    paths:
+      - $PROJECT_PATH/target/*.jar
+    expire_in: 1 week
+
+# Etapa 2: Testes
+unit-test-job:
+  stage: test
+  image: maven:3.8.6-openjdk-11
+  dependencies:
+    - build-job
+  before_script:
+    - apt-get update && apt-get install -y wget tar firefox-esr xvfb
+    - wget https://github.com/mozilla/geckodriver/releases/download/v0.33.0/geckodriver-v0.33.0-linux64.tar.gz
+    - tar -xvzf geckodriver-v0.33.0-linux64.tar.gz
+    - mv geckodriver /usr/local/bin/
+    - chmod +x /usr/local/bin/geckodriver
+    - Xvfb :99 -ac &
+    - export DISPLAY=:99
+  script:
+    - echo "Verificando versão do Firefox..."
+    - firefox --version
+    - echo "Verificando versão do Geckodriver..."
+    - geckodriver --version
+    - echo "Executando testes..."
+    - cd $PROJECT_PATH
+    - mvn test
+  artifacts:
+    when: always
+    reports:
+      junit: $PROJECT_PATH/target/surefire-reports/*.xml
+    paths:
+      - $PROJECT_PATH/target/surefire-reports/
+    expire_in: 1 week
+
+# Etapa 3: Deploy em homologação
+deploy_homolog:
+  stage: deploy
+  image: alpine:latest
+  dependencies:
+    - build-job
+  before_script:
+    - apk add --no-cache openssh
+    - echo "$SSH_PRIVATE_KEY" > /tmp/key.pem
+    - chmod 600 /tmp/key.pem
+    - mkdir -p ~/.ssh
+    - ssh-keyscan -H $HOMOLOG_EC2_IP >> ~/.ssh/known_hosts
+  script:
+    - echo "Deploying to homologation environment..."
+    - scp -i /tmp/key.pem $PROJECT_PATH/target/*.jar ubuntu@$HOMOLOG_EC2_IP:/home/ubuntu/deploy/
+    - ssh -i /tmp/key.pem ubuntu@$HOMOLOG_EC2_IP "sudo systemctl stop nutriweb"
+    - ssh -i /tmp/key.pem ubuntu@$HOMOLOG_EC2_IP "sudo mv /home/ubuntu/deploy/*.jar /opt/nutriweb/"
+    - ssh -i /tmp/key.pem ubuntu@$HOMOLOG_EC2_IP "sudo systemctl start nutriweb"
+  only:
+    - develop
+
+# Etapa 4: Deploy em produção com Docker
+deploy_main:
+  stage: deploy
+  image: alpine:latest
+  dependencies:
+    - build-job
+  before_script:
+    - apk add --no-cache openssh docker-cli
+    - echo "$SSH_PRIVATE_KEY" > /tmp/key.pem
+    - chmod 600 /tmp/key.pem
+    - mkdir -p ~/.ssh
+    - ssh-keyscan -H $MAIN_EC2_IP >> ~/.ssh/known_hosts
+  script:
+    - echo "Deploying to production environment using Docker..."
+    - scp -i /tmp/key.pem $PROJECT_PATH/target/*.jar ubuntu@$MAIN_EC2_IP:/home/ubuntu/deploy/
+    - ssh -i /tmp/key.pem ubuntu@$MAIN_EC2_IP "docker stop nutriweb || true"
+    - ssh -i /tmp/key.pem ubuntu@$MAIN_EC2_IP "docker rm nutriweb || true"
+    - ssh -i /tmp/key.pem ubuntu@$MAIN_EC2_IP "docker rmi nutriweb:latest || true"
+    - ssh -i /tmp/key.pem ubuntu@$MAIN_EC2_IP 'cd /home/ubuntu/deploy/ && docker build -t nutriweb:latest .'
+    - ssh -i /tmp/key.pem ubuntu@$MAIN_EC2_IP "docker run -d --name nutriweb -p 9900:9900 nutriweb:latest"
+    - ssh -i /tmp/key.pem ubuntu@$MAIN_EC2_IP "docker ps -a"
+  only:
+    - main

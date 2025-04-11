@@ -1,0 +1,15 @@
+<p><label class="sr-only" for="cpAlimento">Alimento:</label>
+    <select class="form-username form-control" id="cpAlimento" name="cpAlimento"
+            style="width: 400px">
+        <option value="">Selecione...</option>
+        <option th:each="a : ${listaAlimentos}"
+                th:value="${a.idalimento}"
+                th:text="${a.descricao}"></option>
+    </select>
+</p>
+<p><label class="sr-only" for="cpQtde">Quantidade:</label>
+    <input type="number" class="form-username form-control" id="cpQtde" name="cpQtde"
+           style="width: 400px" min="0" value="0"
+           required="required" placeholder="quantidade..."/>
+</p>
+<p><button type="submit" class="btn">OK!</button></p>
